@@ -21,6 +21,9 @@ class ConsoleUserPrincipalProvisioner
       principal.console_user = user
       principal.assign_attributes(slack_identity_fields)
       principal.labels = principal.labels.merge("managed-by" => "centaur")
+      # New principals must honor the administrator-configured defaults;
+      # without this they would take the more permissive column defaults.
+      principal.apply_default_sandbox_capabilities!
       # Runs once per console execute: skip the write (and its after_commit
       # hooks) when nothing changed.
       principal.save! if principal.changed?
