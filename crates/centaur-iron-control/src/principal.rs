@@ -23,6 +23,7 @@ use std::collections::BTreeMap;
 
 use base64::Engine;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
+use sha2::{Digest, Sha256};
 use thiserror::Error;
 
 use crate::models::PrincipalInput;
@@ -247,7 +248,7 @@ pub fn derive_principal_with_slack_team(
     }
 
     Ok(PrincipalRef {
-        foreign_id: format!("thread-{}", slugify(thread_key)),
+        foreign_id: thread_foreign_id(thread_key),
         name: display_name
             .map(ToOwned::to_owned)
             .unwrap_or_else(|| thread_key.to_owned()),
@@ -257,6 +258,20 @@ pub fn derive_principal_with_slack_team(
         slack_team_id: None,
         labels: BTreeMap::new(),
     })
+}
+
+/// The `thread-*` fallback slugs the whole thread key, and slugging collapses
+/// every run of non-alphanumerics to one dash — `corp/x-app` and `corp-x/app`
+/// produce the same slug, so two distinct threads could share one principal
+/// (and its grants). Appending a fingerprint of the raw key keeps the readable
+/// slug while making the id injective.
+fn thread_foreign_id(thread_key: &str) -> String {
+    let digest = Sha256::digest(thread_key.as_bytes());
+    format!(
+        "thread-{}-{}",
+        slugify(thread_key),
+        URL_SAFE_NO_PAD.encode(&digest[..9])
+    )
 }
 
 /// Resolve the requesting user's principal for a Slack channel thread. This is
@@ -568,8 +583,30 @@ mod tests {
     #[test]
     fn non_slack_thread_keys_slug_the_whole_key() {
         let principal = derive_principal("api", None, None);
-        assert_eq!(principal.foreign_id, "thread-api");
+        assert!(principal.foreign_id.starts_with("thread-api-"));
         assert_eq!(principal.name, "api");
+    }
+
+    #[test]
+    fn thread_fallback_foreign_ids_do_not_collide_on_slug_ambiguity() {
+        // Slugging collapses `corp/x-app` and `corp-x/app` identically; the
+        // fingerprint keeps them as two distinct principals.
+        let a = derive_principal("github:corp/x-app:issue:1", None, None);
+        let b = derive_principal("github:corp-x/app:issue:1", None, None);
+        assert_ne!(a.foreign_id, b.foreign_id);
+        assert!(
+            a.foreign_id
+                .starts_with("thread-github-corp-x-app-issue-1-")
+        );
+        assert!(
+            b.foreign_id
+                .starts_with("thread-github-corp-x-app-issue-1-")
+        );
+        // Derivation stays deterministic for the same key.
+        assert_eq!(
+            a.foreign_id,
+            derive_principal("github:corp/x-app:issue:1", None, None).foreign_id
+        );
     }
 
     #[test]

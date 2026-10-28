@@ -49,6 +49,8 @@ pub enum Error {
     MissingQueueName,
     #[error("queue name {name:?} is too long (max {max} bytes)")]
     QueueNameTooLong { name: String, max: usize },
+    #[error("queue name {name:?} contains characters outside [A-Za-z0-9_]")]
+    InvalidQueueName { name: String },
     #[error("task {task_name:?} is not registered. provide SpawnOptions.queue when spawning unregistered tasks")]
     UnregisteredTask { task_name: String },
     #[error("task {task_name:?} is registered for queue {registered_queue:?} but spawn requested queue {requested_queue:?}")]
@@ -1874,6 +1876,11 @@ async fn fail_task_run(
     Ok(())
 }
 
+/// Queue names are interpolated into `absurd.t_<queue>`/`absurd.r_<queue>`
+/// table identifiers, so anything outside the Postgres unquoted-identifier
+/// charset (letters, digits, underscore) is rejected up front rather than
+/// surfacing as a SQL syntax error or worse mid-query. The `t_`/`r_` prefix
+/// keeps every derived identifier starting with a letter.
 fn validate_queue_name(queue_name: &str) -> Result<String> {
     if queue_name.is_empty() {
         return Err(Error::MissingQueueName);
@@ -1882,6 +1889,14 @@ fn validate_queue_name(queue_name: &str) -> Result<String> {
         return Err(Error::QueueNameTooLong {
             name: queue_name.to_string(),
             max: MAX_QUEUE_NAME_LENGTH,
+        });
+    }
+    if !queue_name
+        .chars()
+        .all(|ch| ch.is_ascii_alphanumeric() || ch == '_')
+    {
+        return Err(Error::InvalidQueueName {
+            name: queue_name.to_string(),
         });
     }
     Ok(queue_name.to_string())
@@ -2165,6 +2180,35 @@ mod tests {
             validate_queue_name(&"a".repeat(MAX_QUEUE_NAME_LENGTH + 1)),
             Err(Error::QueueNameTooLong { .. })
         ));
+    }
+
+    #[test]
+    fn queue_name_validation_requires_identifier_safe_characters() {
+        for name in ["default", "centaur_workflows_etl", "Q1_backfill_2026"] {
+            assert!(validate_queue_name(name).is_ok());
+        }
+        // Anything outside [A-Za-z0-9_] would corrupt or inject into the
+        // `absurd.t_<queue>`/`absurd.r_<queue>` table identifiers.
+        for name in [
+            "a.b",
+            "a-b",
+            "a b",
+            "a;b",
+            "a'",
+            "a\"",
+            "a(b)",
+            "queue,name",
+            "queue/name",
+            "caf\u{e9}",
+        ] {
+            assert!(
+                matches!(
+                    validate_queue_name(name),
+                    Err(Error::InvalidQueueName { .. })
+                ),
+                "expected {name:?} to be rejected"
+            );
+        }
     }
 
     #[test]
