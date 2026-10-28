@@ -159,3 +159,15 @@ def test_retry_after_http_date_is_parsed() -> None:
     now = datetime(2026, 8, 8, 12, 0, tzinfo=UTC)
 
     assert client._retry_delay("Sat, 08 Aug 2026 12:00:05 GMT", now=now) == 5.0
+
+
+def test_raw_request_rejects_endpoints_that_escape_the_api_origin() -> None:
+    client = AttioClient(api_key="test-key")
+    for endpoint in (
+        "https://evil.example/x",
+        "//evil.example/x",
+        "/v2https://evil.example/x",
+        "v2https://evil.example/x",
+    ):
+        with pytest.raises(ValueError):
+            client.raw_request("GET", endpoint)

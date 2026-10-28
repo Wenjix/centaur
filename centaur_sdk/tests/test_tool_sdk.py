@@ -14,6 +14,7 @@ from centaur_sdk import (
     current_linear_thread,
     current_session_context,
     current_slack_thread,
+    require_relative_path,
     reset_tool_context,
     save_attachment,
     secret,
@@ -491,3 +492,22 @@ def test_company_context_database_url_reads_dsn_env(monkeypatch):
 
 def test_company_context_database_url_ignores_unresolved_placeholder():
     assert company_context_database_url("CENTAUR_POSTGRES_DSN") == ""
+
+
+def test_require_relative_path_accepts_provider_relative_paths():
+    assert require_relative_path("/v2/objects") == "/v2/objects"
+    assert require_relative_path("query/123") == "query/123"
+    assert require_relative_path("/files?limit=10") == "/files?limit=10"
+
+
+def test_require_relative_path_rejects_absolute_and_authority_urls():
+    for endpoint in (
+        "https://evil.example/x",
+        "http://evil.example",
+        "//evil.example/x",
+        "/v2https://evil.example/x",
+        "ftp://evil.example",
+        "a://b",
+    ):
+        with pytest.raises(ValueError):
+            require_relative_path(endpoint)

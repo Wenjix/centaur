@@ -804,3 +804,32 @@ def test_directory_json_takes_precedence_over_markdown(monkeypatch):
 
     assert result.exit_code == 0
     assert json.loads(result.stdout) == []
+
+
+def test_drive_download_into_directory_sanitizes_remote_name(tmp_path, monkeypatch):
+    monkeypatch.setattr(client, "drive_get", lambda file_id: {"name": "../../etc/evil.txt"})
+    monkeypatch.setattr(
+        client, "_drive_download_bytes", lambda file_id: ({}, b"payload")
+    )
+
+    result = runner.invoke(
+        app, ["drive", "download", "file-123", "--output", str(tmp_path)]
+    )
+
+    assert result.exit_code == 0
+    assert (tmp_path / "evil.txt").read_bytes() == b"payload"
+    assert not (tmp_path / ".." / "etc" / "evil.txt").exists()
+    assert not (tmp_path.parent / "etc" / "evil.txt").exists()
+
+
+def test_drive_download_rejects_dotdot_remote_name(tmp_path, monkeypatch):
+    monkeypatch.setattr(client, "drive_get", lambda file_id: {"name": ".."})
+    monkeypatch.setattr(
+        client, "_drive_download_bytes", lambda file_id: ({}, b"payload")
+    )
+
+    result = runner.invoke(
+        app, ["drive", "download", "file-123", "--output", str(tmp_path)]
+    )
+
+    assert result.exit_code == 1

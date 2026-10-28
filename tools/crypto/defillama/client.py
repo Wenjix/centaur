@@ -3,7 +3,7 @@
 
 import httpx
 
-from centaur_sdk import secret
+from centaur_sdk import require_relative_path, secret
 
 
 _PERP_VENUE_HINTS = frozenset({
@@ -129,7 +129,7 @@ class DefiLlamaClient:
         Returns:
             JSON response data
         """
-        return self._request(endpoint, params, pro=pro)
+        return self._request(require_relative_path(endpoint), params, pro=pro)
 
     # === Stablecoins ===
 

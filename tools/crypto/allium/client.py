@@ -10,7 +10,7 @@ from typing import Any
 
 import httpx
 
-from centaur_sdk import secret
+from centaur_sdk import require_relative_path, secret
 
 
 def _parse_sse_events(response_text: str) -> list[dict]:
@@ -134,7 +134,9 @@ class AlliumClient:
         Returns:
             Response JSON as dict
         """
-        response = self.http_client.request(method, endpoint, json=json_data)
+        response = self.http_client.request(
+            method, require_relative_path(endpoint), json=json_data
+        )
         response.raise_for_status()
         return response.json()
 

@@ -308,14 +308,21 @@ class DiscordClient:
                 f"(cdn.discordapp.com / media.discordapp.net); refusing {url!r}"
             )
         os.makedirs(output_dir, exist_ok=True)
-        name = filename or os.path.basename(parsed.path) or "download"
+        name = os.path.basename(filename or os.path.basename(parsed.path) or "download")
         dest = os.path.join(output_dir, name)
         total = 0
         with httpx.Client(timeout=self.timeout) as client, client.stream("GET", url) as response:
             if response.status_code >= 400:
                 raise RuntimeError(f"Discord download failed ({response.status_code}) for {url}")
             try:
-                with open(dest, "wb") as handle:
+                # O_NOFOLLOW (where supported) keeps a pre-planted symlink at
+                # dest from redirecting the write outside output_dir.
+                fd = os.open(
+                    dest,
+                    os.O_WRONLY | os.O_CREAT | os.O_TRUNC | getattr(os, "O_NOFOLLOW", 0),
+                    0o600,
+                )
+                with os.fdopen(fd, "wb") as handle:
                     for chunk in response.iter_bytes():
                         total += len(chunk)
                         if total > self._MAX_DOWNLOAD_BYTES:

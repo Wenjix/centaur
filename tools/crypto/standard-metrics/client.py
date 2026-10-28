@@ -5,7 +5,7 @@ import time
 from typing import Any
 
 import httpx
-from centaur_sdk.tool_sdk import secret
+from centaur_sdk.tool_sdk import require_relative_path, secret
 
 BASE_URL = "https://api.standardmetrics.io/v1"
 TOKEN_URL = "https://api.standardmetrics.io/o/token/"
@@ -82,6 +82,7 @@ class StandardMetricsClient:
 
     def _request(self, method: str, path: str, **kwargs) -> dict[str, Any]:
         """Make authenticated request to Standard Metrics API."""
+        path = require_relative_path(path)
         with self._get_http_client() as client:
             response = client.request(method, path, **kwargs)
             if response.status_code >= 400:

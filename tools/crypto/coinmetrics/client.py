@@ -3,7 +3,7 @@
 
 import httpx
 
-from centaur_sdk import secret
+from centaur_sdk import require_relative_path, secret
 
 
 class CoinMetricsClient:
@@ -76,7 +76,7 @@ class CoinMetricsClient:
         Returns:
             JSON response data
         """
-        return self._request(endpoint, params)
+        return self._request(require_relative_path(endpoint), params)
 
     # === Reference Data ===
 
