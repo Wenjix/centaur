@@ -8,7 +8,7 @@ from urllib.parse import SplitResult, quote, urlsplit, urlunsplit
 
 import httpx
 
-from centaur_sdk import secret
+from centaur_sdk import require_relative_path, secret
 
 _SLACK_ARCHIVE_RE = re.compile(r"/archives/(?P<channel>[A-Z0-9]+)/p(?P<ts>\d{16})")
 _SLACK_CLIENT_THREAD_RE = re.compile(
@@ -124,7 +124,9 @@ class GrafanaClient:
         params: dict | None = None,
         json_data: dict | None = None,
     ) -> Any:
-        resp = self.client.request(method, path, params=params, json=json_data)
+        resp = self.client.request(
+            method, require_relative_path(path), params=params, json=json_data
+        )
         if resp.status_code >= 400:
             raise RuntimeError(f"Grafana API error ({resp.status_code}): {resp.text}")
         return resp.json()
@@ -137,7 +139,9 @@ class GrafanaClient:
         data: dict | None = None,
     ) -> httpx.Response:
         """Like _request but returns the raw httpx.Response (for non-JSON APIs)."""
-        resp = self.client.request(method, path, params=params, data=data)
+        resp = self.client.request(
+            method, require_relative_path(path), params=params, data=data
+        )
         if resp.status_code >= 400:
             raise RuntimeError(f"Grafana API error ({resp.status_code}): {resp.text}")
         return resp

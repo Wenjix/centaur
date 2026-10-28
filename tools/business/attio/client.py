@@ -9,7 +9,7 @@ from typing import Any
 
 import httpx
 
-from centaur_sdk import secret
+from centaur_sdk import require_relative_path, secret
 
 
 class AttioClient:
@@ -41,6 +41,7 @@ class AttioClient:
 
     def _request(self, method: str, path: str, **kwargs) -> dict[str, Any]:
         """Make authenticated request to Attio API."""
+        path = require_relative_path(path)
         for attempt in range(self.max_rate_limit_retries + 1):
             response = self._http().request(method, path, **kwargs)
             if response.status_code != 429 or attempt == self.max_rate_limit_retries:

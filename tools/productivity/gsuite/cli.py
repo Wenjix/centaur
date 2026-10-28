@@ -673,7 +673,12 @@ def drive_download(
         output_path = Path(output)
 
         if output_path.is_dir():
-            output_path = output_path / file_info["name"]
+            # Remote Drive names are untrusted: reduce to a basename so an
+            # absolute path or `..` components can't escape the directory.
+            safe_name = Path(file_info["name"]).name
+            if safe_name in ("", ".", ".."):
+                raise ValueError(f"unsafe Drive file name: {file_info['name']!r}")
+            output_path = output_path / safe_name
 
         _metadata, data = _drive_download_bytes(file_id)
         output_path.write_bytes(data)

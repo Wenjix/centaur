@@ -51,6 +51,24 @@ def get_tool_context() -> ToolContext:
 # ---------------------------------------------------------------------------
 
 
+def require_relative_path(endpoint: str) -> str:
+    """Return ``endpoint`` if it is a provider-relative request path, else raise.
+
+    Credentialed tool clients attach API keys and bearer tokens to requests.
+    An absolute URL or authority-relative ``//host`` form would redirect those
+    credentials to a caller-selected origin, so callers must only pass
+    relative paths. Query and fragment values are data, not the request
+    origin, so only the path portion is inspected — a URL-valued query
+    parameter such as ``?callback=https://example.com`` stays valid.
+    """
+    path_portion = endpoint.split("?", 1)[0].split("#", 1)[0]
+    if "://" in path_portion or path_portion.startswith("//"):
+        raise ValueError(
+            f"endpoint must be a provider-relative path, got {endpoint!r}"
+        )
+    return endpoint
+
+
 def secret(key: str, default: str | None = None) -> str:
     """Get a secret. Resolution order: tool context → pluggable backend → default.
 

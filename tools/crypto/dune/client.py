@@ -25,7 +25,11 @@ class DuneClient:
 
     def _request(self, method: str, path: str, **kwargs) -> dict[str, Any]:
         """Make authenticated request to Dune API."""
-        response = self._client.request(method, path, **kwargs)
+        from centaur_sdk import require_relative_path
+
+        response = self._client.request(
+            method, require_relative_path(path), **kwargs
+        )
         if response.status_code >= 400:
             try:
                 error = response.json()

@@ -4,7 +4,7 @@ from typing import Any
 
 import httpx
 
-from centaur_sdk import secret
+from centaur_sdk import require_relative_path, secret
 
 BASE_URL_V1 = "https://api.messari.io/metrics/v1"
 BASE_URL_V2 = "https://api.messari.io/metrics/v2"
@@ -94,6 +94,7 @@ class MessariClient:
 
     def raw_request(self, endpoint: str, version: int = 1, params: dict | None = None) -> dict:
         """Make a raw API call to any endpoint."""
+        endpoint = require_relative_path(endpoint)
         return self._request(endpoint, version=version, params=params)
 
     def close(self):

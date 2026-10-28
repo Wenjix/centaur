@@ -7,7 +7,7 @@ from typing import Any
 
 import httpx
 
-from centaur_sdk.tool_sdk import secret
+from centaur_sdk.tool_sdk import require_relative_path, secret
 
 
 class LegiStormClient:
@@ -71,6 +71,7 @@ class LegiStormClient:
 
     def raw_request(self, endpoint: str, params: dict | None = None) -> dict | list:
         """Make a raw API request to any LegiStorm Congress endpoint."""
+        endpoint = require_relative_path(endpoint)
         normalized_endpoint = endpoint if endpoint.startswith("/") else f"/{endpoint}"
         return self._request(normalized_endpoint, params)
 
