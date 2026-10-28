@@ -24,4 +24,32 @@ class ConsoleUserPrincipalProvisionerTest < ActiveSupport::TestCase
       ConsoleUserPrincipalProvisioner.call(user)
     end
   end
+
+  test "new console user principals receive the configured sandbox defaults" do
+    SystemSetting.current.update!(
+      default_sandbox_repo_cache: "none",
+      default_sandbox_observability_enabled: false,
+      default_sandbox_sessions_read_enabled: false,
+      default_sandbox_workflows_read_enabled: false,
+      default_sandbox_workflows_write_enabled: false
+    )
+
+    principal = ConsoleUserPrincipalProvisioner.call(users(:member_user))
+
+    assert_equal "none", principal.sandbox_repo_cache
+    assert_equal false, principal.sandbox_observability_enabled
+    assert_equal false, principal.sandbox_sessions_read_enabled
+    assert_equal false, principal.sandbox_workflows_read_enabled
+    assert_equal false, principal.sandbox_workflows_write_enabled
+  end
+
+  test "administrator default changes do not rewrite existing principals" do
+    principal = ConsoleUserPrincipalProvisioner.call(users(:member_user))
+    assert_equal "all", principal.sandbox_repo_cache
+
+    SystemSetting.current.update!(default_sandbox_repo_cache: "none")
+    ConsoleUserPrincipalProvisioner.call(users(:member_user))
+
+    assert_equal "all", principal.reload.sandbox_repo_cache
+  end
 end
