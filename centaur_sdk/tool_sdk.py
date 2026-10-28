@@ -57,10 +57,12 @@ def require_relative_path(endpoint: str) -> str:
     Credentialed tool clients attach API keys and bearer tokens to requests.
     An absolute URL or authority-relative ``//host`` form would redirect those
     credentials to a caller-selected origin, so callers must only pass
-    relative paths. ``://`` can never appear inside a legitimate relative
-    path.
+    relative paths. Query and fragment values are data, not the request
+    origin, so only the path portion is inspected — a URL-valued query
+    parameter such as ``?callback=https://example.com`` stays valid.
     """
-    if "://" in endpoint or endpoint.startswith("//"):
+    path_portion = endpoint.split("?", 1)[0].split("#", 1)[0]
+    if "://" in path_portion or path_portion.startswith("//"):
         raise ValueError(
             f"endpoint must be a provider-relative path, got {endpoint!r}"
         )

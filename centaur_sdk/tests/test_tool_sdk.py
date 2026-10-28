@@ -498,6 +498,15 @@ def test_require_relative_path_accepts_provider_relative_paths():
     assert require_relative_path("/v2/objects") == "/v2/objects"
     assert require_relative_path("query/123") == "query/123"
     assert require_relative_path("/files?limit=10") == "/files?limit=10"
+    # URL-valued query and fragment parameters are data, not the origin.
+    assert (
+        require_relative_path("/api/v1/search?callback=https://example.com")
+        == "/api/v1/search?callback=https://example.com"
+    )
+    assert (
+        require_relative_path("/files#see https://docs.example")
+        == "/files#see https://docs.example"
+    )
 
 
 def test_require_relative_path_rejects_absolute_and_authority_urls():

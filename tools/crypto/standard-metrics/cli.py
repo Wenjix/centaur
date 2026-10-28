@@ -316,7 +316,7 @@ def raw(
     try:
         data = client.raw_request(method.upper(), endpoint, params=query_params)
         print(json.dumps(data, indent=2))
-    except RuntimeError as e:
+    except (RuntimeError, ValueError) as e:
         console.print(f"[red]Error: {e}[/]")
         raise typer.Exit(1)
 
