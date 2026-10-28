@@ -284,10 +284,29 @@ async def _upsert_channels(
                 )
 
 
-async def _upsert_users(pool, users: list[dict[str, Any]]) -> int:
-    """Refresh Slack user directory rows."""
+async def _upsert_users(
+    pool,
+    users: list[dict[str, Any]],
+    *,
+    listing_complete: bool = True,
+) -> int:
+    """Refresh Slack user directory rows and mark departed users deleted.
+
+    ``users`` is the full users.list result, deactivated accounts included.
+    A user absent from a *complete* listing can no longer be verified, so
+    their row is marked ``is_deleted`` — same fail-closed direction as
+    channels. An empty or capped (possibly truncated) listing skips the
+    reset rather than mass-marking live users.
+    """
+    if not users:
+        return 0
     async with pool.acquire() as conn:
         async with conn.transaction():
+            if listing_complete:
+                await conn.execute(
+                    "UPDATE slack_sync_users SET is_deleted = TRUE, "
+                    "updated_at = NOW()",
+                )
             for user in users:
                 user_id = str(user.get("id") or "")
                 if not user_id:
@@ -515,8 +534,9 @@ async def handler(inp: Input, ctx: WorkflowContext) -> dict[str, Any]:
             "channels_skipped": skipped_channels,
         }
 
+    users_limit = 10_000
     try:
-        users = client._list_etl_users(limit=10_000)
+        users = client._list_etl_users(limit=users_limit)
         record_slack_retention_api_request("list_users", "success")
     except Exception as exc:
         reason = failure_reason(str(exc))
@@ -529,7 +549,13 @@ async def handler(inp: Input, ctx: WorkflowContext) -> dict[str, Any]:
         )
         raise
     record_etl_items_seen("slack", "user", "user", len(users))
-    users_upserted = await _upsert_users(ctx._pool, users)
+    users_upserted = await _upsert_users(
+        ctx._pool,
+        users,
+        # A listing at the cap may be truncated — don't reset on a
+        # possibly-partial view of the workspace directory.
+        listing_complete=len(users) < users_limit,
+    )
     record_etl_items_upserted("slack", "user", "user", users_upserted)
 
     run_id = workflow_run_id_to_sync_run_id(ctx.run_id)

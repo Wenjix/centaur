@@ -160,3 +160,46 @@ def test_discovered_but_filtered_channel_keeps_verified_privacy():
     assert by_id["C1"][3] is False and by_id["C1"][4] is True
     assert by_id["C2"][3] is False and by_id["C2"][4] is False
     assert "is_syncable = EXCLUDED.is_syncable" in upserts[0][0]
+
+
+def test_users_leaving_directory_fail_closed_as_deleted():
+    """A user absent from a complete listing can no longer be verified —
+    their row is marked is_deleted so the profile stops presenting as active."""
+    conn = FakeConn()
+    users = [{"id": "U1", "name": "ada"}]
+    asyncio.run(sync._upsert_users(FakePool(conn), users, listing_complete=True))
+
+    reset_sql = conn.execute_calls[0][0]
+    assert "is_deleted = TRUE" in reset_sql
+
+
+def test_deactivated_user_in_listing_writes_is_deleted():
+    """users.list reports deactivated accounts — the flag must reach the row."""
+    conn = FakeConn()
+    users = [{"id": "U1", "name": "ada", "deleted": True}]
+    asyncio.run(sync._upsert_users(FakePool(conn), users))
+
+    upserts = [
+        (sql, args)
+        for sql, args in conn.execute_calls
+        if "INSERT INTO slack_sync_users" in sql
+    ]
+    assert len(upserts) == 1
+    # $6 is is_deleted in the INSERT parameter list.
+    assert upserts[0][1][5] is True
+    assert "is_deleted = EXCLUDED.is_deleted" in upserts[0][0]
+
+
+def test_users_reset_skipped_on_empty_or_partial_listing():
+    """An empty listing or a cap-truncated one must not mass-mark users."""
+    conn = FakeConn()
+    asyncio.run(sync._upsert_users(FakePool(conn), []))
+    assert conn.execute_calls == []
+
+    conn = FakeConn()
+    users = [{"id": "U1", "name": "ada"}]
+    asyncio.run(sync._upsert_users(FakePool(conn), users, listing_complete=False))
+    assert not any(
+        sql.startswith("UPDATE slack_sync_users")
+        for sql, _args in conn.execute_calls
+    )
