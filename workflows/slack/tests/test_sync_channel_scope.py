@@ -106,7 +106,7 @@ def test_channels_leaving_discovery_fail_closed_on_privacy():
     """Reader policy keys on is_private alone: undiscovered channels must be
     marked private, not left with a stale public classification."""
     conn = FakeConn()
-    asyncio.run(sync._upsert_channels(FakePool(conn), []))
+    asyncio.run(sync._upsert_channels(FakePool(conn), [], set()))
 
     assert conn.execute_calls, "expected the out-of-scope update"
     scope_sql = conn.execute_calls[0][0]
@@ -122,7 +122,9 @@ def test_discovered_channel_restores_its_live_privacy_flag():
         {"id": "C1", "name": "general", "is_private": False},
         {"id": "G1", "name": "secret-team", "is_private": True},
     ]
-    asyncio.run(sync._upsert_channels(FakePool(conn), channels))
+    asyncio.run(
+        sync._upsert_channels(FakePool(conn), channels, {"C1", "G1"})
+    )
 
     upserts = [
         (sql, args)
@@ -130,7 +132,31 @@ def test_discovered_channel_restores_its_live_privacy_flag():
         if "INSERT INTO slack_sync_channels" in sql
     ]
     assert len(upserts) == 2
-    # $4 is is_private in the INSERT parameter list.
+    # $4 is is_private and $5 is is_syncable in the INSERT parameter list.
     assert upserts[0][1][3] is False
+    assert upserts[0][1][4] is True
     assert upserts[1][1][3] is True
     assert "is_private = EXCLUDED.is_private" in upserts[0][0]
+
+
+def test_discovered_but_filtered_channel_keeps_verified_privacy():
+    """A channel that was discovered but excluded from sync scope (exclusion
+    pattern or bot non-membership) still has its privacy state verified — it
+    must keep its live is_private while being marked unsyncable."""
+    conn = FakeConn()
+    channels = [
+        {"id": "C1", "name": "general", "is_private": False},
+        {"id": "C2", "name": "excluded-public", "is_private": False},
+    ]
+    asyncio.run(sync._upsert_channels(FakePool(conn), channels, {"C1"}))
+
+    upserts = [
+        (sql, args)
+        for sql, args in conn.execute_calls
+        if "INSERT INTO slack_sync_channels" in sql
+    ]
+    assert len(upserts) == 2
+    by_id = {args[0]: args for _sql, args in upserts}
+    assert by_id["C1"][3] is False and by_id["C1"][4] is True
+    assert by_id["C2"][3] is False and by_id["C2"][4] is False
+    assert "is_syncable = EXCLUDED.is_syncable" in upserts[0][0]

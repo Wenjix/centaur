@@ -230,8 +230,18 @@ def _max_slack_ts(*values: Any) -> str | None:
     return best
 
 
-async def _upsert_channels(pool, channels: list[dict[str, Any]]) -> None:
-    """Refresh Slack sync channel rows and mark absent channels out of scope."""
+async def _upsert_channels(
+    pool,
+    channels: list[dict[str, Any]],
+    syncable_ids: set[str],
+) -> None:
+    """Refresh Slack sync channel rows and mark absent channels out of scope.
+
+    ``channels`` is the full discovery listing — its payloads carry verified
+    privacy state. ``syncable_ids`` is the subset that passed exclusion and
+    membership filters; discovered-but-unsyncable channels keep their verified
+    ``is_private`` while staying out of sync scope.
+    """
     async with pool.acquire() as conn:
         async with conn.transaction():
             # Fail closed on privacy: a channel that leaves discovery keeps
@@ -250,12 +260,12 @@ async def _upsert_channels(pool, channels: list[dict[str, Any]]) -> None:
                     "INSERT INTO slack_sync_channels ("
                     "channel_id, channel_name, is_archived, is_private, is_syncable, "
                     "topic, purpose, member_count, raw_payload, last_seen_at, updated_at"
-                    ") VALUES ($1, $2, $3, $4, TRUE, $5, $6, $7, $8::jsonb, NOW(), NOW()) "
+                    ") VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::jsonb, NOW(), NOW()) "
                     "ON CONFLICT (channel_id) DO UPDATE SET "
                     "channel_name = EXCLUDED.channel_name, "
                     "is_archived = EXCLUDED.is_archived, "
                     "is_private = EXCLUDED.is_private, "
-                    "is_syncable = TRUE, "
+                    "is_syncable = EXCLUDED.is_syncable, "
                     "topic = EXCLUDED.topic, "
                     "purpose = EXCLUDED.purpose, "
                     "member_count = EXCLUDED.member_count, "
@@ -266,6 +276,7 @@ async def _upsert_channels(pool, channels: list[dict[str, Any]]) -> None:
                     str(channel.get("name") or ""),
                     bool(channel.get("is_archived")),
                     bool(channel.get("is_private")),
+                    channel_id in syncable_ids,
                     str(channel.get("topic") or ""),
                     str(channel.get("purpose") or ""),
                     int(channel.get("member_count") or 0),
@@ -447,8 +458,19 @@ async def handler(inp: Input, ctx: WorkflowContext) -> dict[str, Any]:
             channels=non_member_channels,
         )
     skipped_channels = list(excluded_channels) + list(non_member_channels)
-    await _upsert_channels(ctx._pool, channels_to_sync)
-    record_etl_items_upserted("slack", "channel", "channel", len(channels_to_sync))
+    if channels:
+        # Refresh privacy state for every discovered channel — filtered-out
+        # channels were still verified this tick — and fail closed for rows
+        # absent from discovery. An empty listing skips mutation entirely.
+        syncable_ids = {
+            channel_id
+            for channel in channels_to_sync
+            if (channel_id := str(channel.get("id") or ""))
+        }
+        await _upsert_channels(ctx._pool, channels, syncable_ids)
+        record_etl_items_upserted(
+            "slack", "channel", "channel", len(channels_to_sync)
+        )
 
     if not channels:
         reason = "no_channels"
