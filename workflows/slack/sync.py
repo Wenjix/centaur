@@ -234,8 +234,13 @@ async def _upsert_channels(pool, channels: list[dict[str, Any]]) -> None:
     """Refresh Slack sync channel rows and mark absent channels out of scope."""
     async with pool.acquire() as conn:
         async with conn.transaction():
+            # Fail closed on privacy: a channel that leaves discovery keeps
+            # whatever is_private it last had, and reader policy keys on
+            # is_private alone — mark undiscovered channels private so stale
+            # "public" history stops being served while they are unverifiable.
             await conn.execute(
-                "UPDATE slack_sync_channels SET is_syncable = FALSE, updated_at = NOW()",
+                "UPDATE slack_sync_channels SET is_syncable = FALSE, "
+                "is_private = TRUE, updated_at = NOW()",
             )
             for channel in channels:
                 channel_id = str(channel.get("id") or "")
