@@ -888,24 +888,18 @@ fn caller_may_start_workflow(starters: Option<&BTreeSet<String>>, caller: Caller
 }
 
 /// The agent-turn contract lets a run select its principal through
-/// `input.principal`/`input.principal_foreign_id`. Only Console callers may
-/// assert a principal other than their own; a Principal caller may repeat its
-/// own subject but never someone else's.
-fn caller_may_assert_run_principal(
-    caller_class: CallerClass,
-    principal_subject: Option<&str>,
-    input: &Value,
-) -> bool {
-    let Some(foreign_id) = input
+/// `input.principal`/`input.principal_foreign_id` — a foreign id, while a
+/// Principal JWT carries only its opaque `sub` OID, so a caller cannot prove
+/// "that's me" at this boundary. Only Console callers may assert a principal;
+/// everyone else must let the run resolve its own.
+fn caller_may_assert_run_principal(caller_class: CallerClass, input: &Value) -> bool {
+    let asserted = input
         .get("principal")
         .or_else(|| input.get("principal_foreign_id"))
         .and_then(Value::as_str)
         .map(str::trim)
-        .filter(|value| !value.is_empty())
-    else {
-        return true;
-    };
-    caller_class == CallerClass::Console || principal_subject == Some(foreign_id)
+        .is_some_and(|value| !value.is_empty());
+    !asserted || caller_class == CallerClass::Console
 }
 
 #[cfg(test)]
@@ -946,23 +940,18 @@ mod session_authorization_tests {
     fn only_console_may_assert_a_foreign_principal_in_run_input() {
         for key in ["principal", "principal_foreign_id"] {
             let input = json!({ key: "slack-user-U1" });
-            for caller_class in [CallerClass::Admin, CallerClass::Ingress] {
-                assert!(!caller_may_assert_run_principal(caller_class, None, &input));
+            // A Principal caller cannot prove self-assertion at this boundary
+            // (its subject is an OID, not a foreign id), so all non-Console
+            // classes are rejected — even one repeating its own foreign id.
+            for caller_class in [
+                CallerClass::Admin,
+                CallerClass::Ingress,
+                CallerClass::Principal,
+            ] {
+                assert!(!caller_may_assert_run_principal(caller_class, &input));
             }
-            assert!(!caller_may_assert_run_principal(
-                CallerClass::Principal,
-                Some("slack-user-U2"),
-                &input
-            ));
-            // A Principal caller may repeat its own subject.
-            assert!(caller_may_assert_run_principal(
-                CallerClass::Principal,
-                Some("slack-user-U1"),
-                &input
-            ));
             assert!(caller_may_assert_run_principal(
                 CallerClass::Console,
-                None,
                 &input
             ));
         }
@@ -976,7 +965,6 @@ mod session_authorization_tests {
         ] {
             assert!(caller_may_assert_run_principal(
                 CallerClass::Principal,
-                Some("slack-user-U2"),
                 &input
             ));
         }
@@ -2504,8 +2492,7 @@ async fn create_workflow_run(
             request.workflow_name.trim()
         )));
     }
-    if !caller_may_assert_run_principal(caller.class(), caller.principal_subject(), &request.input)
-    {
+    if !caller_may_assert_run_principal(caller.class(), &request.input) {
         return Err(ApiError::Forbidden(
             "caller may not assert another principal in workflow input".to_owned(),
         ));
