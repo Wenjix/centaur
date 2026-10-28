@@ -5,6 +5,7 @@ import time
 from typing import Any
 
 import httpx
+
 from centaur_sdk.tool_sdk import require_relative_path, secret
 
 BASE_URL = "https://api.standardmetrics.io/v1"
@@ -77,7 +78,10 @@ class StandardMetricsClient:
                 "Content-Type": "application/json",
             },
             timeout=self.timeout,
-            follow_redirects=True,
+            # Credentialed clients never follow redirects: forwarded
+            # requests carry query params and body to the redirect target,
+            # and only Authorization is stripped cross-origin.
+            follow_redirects=False,
         )
 
     def _request(self, method: str, path: str, **kwargs) -> dict[str, Any]:
@@ -85,6 +89,11 @@ class StandardMetricsClient:
         path = require_relative_path(path)
         with self._get_http_client() as client:
             response = client.request(method, path, **kwargs)
+            if response.is_redirect:
+                raise RuntimeError(
+                    f"Standard Metrics API returned a redirect "
+                    f"({response.status_code}); not following"
+                )
             if response.status_code >= 400:
                 try:
                     error = response.json()
